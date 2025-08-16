@@ -1,13 +1,25 @@
 {
-  "name": "${PROJECT_NAME}",
+  "name": "pocketsmith-tools",
   "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
+  "description": "A tool to interact with Pocketsmith API",
+  "main": "src/index.ts",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "ts-node src/index.ts",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@types/luxon": "^3.7.1",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1",
+    "luxon": "^3.7.1"
+  },
   "devDependencies": {
+    "@types/node": "^20.11.19",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.5.3"
   },
   "private": true

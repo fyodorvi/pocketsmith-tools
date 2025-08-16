@@ -9,3 +9,8 @@ yarn-error.log*
 .pnp.js
 
 .vscode/*
+data/*
+
+# Cache directory for PocketSmith events
+cache/
+.env

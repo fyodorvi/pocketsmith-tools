@@ -1,103 +1,81 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import dotenv from 'dotenv';
-import parseLinkHeader from 'parse-link-header';
-import { Event, ListEventsParams } from './types';
+import axios, { AxiosInstance } from 'axios';
+import { DateTime } from 'luxon';
+import { PocketSmithEvent, Config } from './types';
+import { formatDateForAPI } from './utils/dateUtils';
 
-dotenv.config();
+export class PocketSmithClient {
+  private client: AxiosInstance;
+  private scenarioId: string;
 
-interface PaginatedResponse<T> {
-  data: T[];
-  links: ReturnType<typeof parseLinkHeader>;
-}
-
-export class PocketsmithClient {
-  private readonly api: AxiosInstance;
-  private readonly scenarioId: string;
-
-  constructor(apiKey: string, scenarioId: string) {
-    if (!apiKey || !scenarioId) {
-      throw new Error('API key and Scenario ID are required');
-    }
-
-    this.scenarioId = scenarioId;
-    this.api = axios.create({
+  constructor(config: Config) {
+    this.scenarioId = config.scenarioId;
+    
+    this.client = axios.create({
       baseURL: 'https://api.pocketsmith.com/v2',
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': `Key ${apiKey}`
+        'X-Developer-Key': config.apiKey,
+        'Content-Type': 'application/json'
       }
     });
   }
 
-  private parseResponse<T>(response: AxiosResponse<T[]>): { data: T[]; links: NonNullable<ReturnType<typeof parseLinkHeader>> } {
-    const linkHeader = response.headers.link as string | undefined;
-    const links = parseLinkHeader(linkHeader || '') || {};
-    
-    return {
-      data: response.data,
-      links: links as NonNullable<ReturnType<typeof parseLinkHeader>>
-    };
-  }
+  /**
+   * Fetch events for a specific date range
+   * @param startDate Start date
+   * @param endDate End date
+   * @returns Array of events
+   */
+  async fetchEvents(startDate: DateTime, endDate: DateTime): Promise<PocketSmithEvent[]> {
+    try {
+      const url = `/scenarios/${this.scenarioId}/events`;
+      const params = {
+        start_date: formatDateForAPI(startDate),
+        end_date: formatDateForAPI(endDate),
+        per_page: 500
+      };
 
-  async getEventsPage(params: Omit<ListEventsParams, 'page' | 'per_page'> & { page?: number } = {}): Promise<{ events: Event[]; nextPage: number | null }> {
-    const response = await this.api.get<Event[]>(
-      `/scenarios/${this.scenarioId}/events`,
-      { 
-        params: {
-          per_page: 100, // Max per page
-          ...params
-        } 
+      console.log(`Fetching events from ${params.start_date} to ${params.end_date}...`);
+
+      const response = await this.client.get(url, { params });
+      
+      if (response.status !== 200) {
+        throw new Error(`API request failed with status ${response.status}: ${response.statusText}`);
       }
-    );
 
-    const { links } = this.parseResponse(response);
-    const nextPage = links.next?.page ? parseInt(links.next.page, 10) : null;
-    
-    return {
-      events: response.data,
-      nextPage
-    };
-  }
-
-  async getAllEvents(params: Omit<ListEventsParams, 'page' | 'per_page'> = {}): Promise<Event[]> {
-    let allEvents: Event[] = [];
-    let currentPage = 1;
-    let hasMore = true;
-    
-    while (hasMore) {
-      try {
-        const { events, nextPage } = await this.getEventsPage({
-          ...params,
-          page: currentPage
-        });
-        
-        allEvents = [...allEvents, ...events];
-        
-        if (nextPage && nextPage > currentPage) {
-          currentPage = nextPage;
-          // Small delay to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } else {
-          hasMore = false;
+      const events = response.data as PocketSmithEvent[];
+      console.log(`Fetched ${events.length} events from API`);
+      
+      return events;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          console.error(`API Error ${error.response.status}:`, error.response.data);
+          throw new Error(`PocketSmith API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          console.error('No response received from API:', error.request);
+          throw new Error('No response received from PocketSmith API');
         }
-      } catch (error) {
-        console.error(`Error fetching page ${currentPage} of events:`, error);
-        throw error;
       }
+      
+      console.error('Error fetching events:', error);
+      throw error;
     }
-    
-    return allEvents;
   }
-}
 
-export function createPocketsmithClient(): PocketsmithClient {
-  const apiKey = process.env.PS_API_KEY;
-  const scenarioId = process.env.PS_SCENARIO_ID;
-  
-  if (!apiKey || !scenarioId) {
-    throw new Error('PS_API_KEY and PS_SCENARIO_ID must be set in .env');
+  /**
+   * Fetch events for a specific month
+   * @param year Year
+   * @param month Month (1-12)
+   * @returns Array of events for the month
+   */
+  async fetchMonthlyEvents(year: number, month: number): Promise<PocketSmithEvent[]> {
+    const startDate = DateTime.fromObject(
+      { year, month, day: 1 },
+      { zone: 'Pacific/Auckland' }
+    ).startOf('day');
+    
+    const endDate = startDate.endOf('month');
+    
+    return this.fetchEvents(startDate, endDate);
   }
-  
-  return new PocketsmithClient(apiKey, scenarioId);
 }

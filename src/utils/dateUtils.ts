@@ -1,49 +1,67 @@
-import {
-  format,
-  parseISO,
-  isWithinInterval,
-  isBefore,
-  startOfDay,
-  endOfDay,
-  startOfMonth,
-  endOfMonth,
-  addMonths
-} from 'date-fns';
+import { DateTime } from 'luxon';
 
-export function getMonthlyRanges(startDate: Date, endDate: Date): { start: Date; end: Date }[] {
-  const ranges = [];
-  let currentStart = startOfMonth(startDate);
-
-  while (isBefore(currentStart, endDate)) {
-    const monthEnd = endOfMonth(currentStart);
-
-    // Adjust the end date if it goes beyond our target end date
-    const rangeEnd = isBefore(monthEnd, endDate) ? monthEnd : endOfDay(endDate);
-
-    ranges.push({
-      start: startOfDay(currentStart),
-      end: rangeEnd
-    });
-
-    // Move to next month
-    currentStart = startOfMonth(addMonths(currentStart, 1));
+/**
+ * Get the current New Zealand financial year dates (April 1 - March 31)
+ * @returns Object with start and end dates of the current NZ financial year
+ */
+export function getCurrentNZFinancialYear(): { start: DateTime; end: DateTime } {
+  const now = DateTime.now().setZone('Pacific/Auckland');
+  
+  // NZ financial year runs from April 1 to March 31
+  let startYear = now.year;
+  
+  // If we're in Jan-Mar, the financial year started in the previous calendar year
+  if (now.month < 4) {
+    startYear = now.year - 1;
   }
-
-  return ranges;
+  
+  const start = DateTime.fromObject(
+    { year: startYear, month: 4, day: 1 },
+    { zone: 'Pacific/Auckland' }
+  ).startOf('day');
+  
+  const end = DateTime.fromObject(
+    { year: startYear + 1, month: 3, day: 31 },
+    { zone: 'Pacific/Auckland' }
+  ).endOf('day');
+  
+  return { start, end };
 }
 
-export function formatDateForApi(date: Date): string {
-  return format(date, 'yyyy-MM-dd');
+/**
+ * Generate array of month periods for a given date range
+ * @param start Start date
+ * @param end End date
+ * @returns Array of objects with start and end dates for each month
+ */
+export function getMonthlyPeriods(start: DateTime, end: DateTime): Array<{ start: DateTime; end: DateTime; year: number; month: number }> {
+  const periods: Array<{ start: DateTime; end: DateTime; year: number; month: number }> = [];
+  
+  let current = start.startOf('month');
+  const endMonth = end.endOf('month');
+  
+  while (current <= endMonth) {
+    const monthEnd = current.endOf('month');
+    const periodEnd = monthEnd < end ? monthEnd : end;
+    
+    periods.push({
+      start: current >= start ? current : start,
+      end: periodEnd,
+      year: current.year,
+      month: current.month
+    });
+    
+    current = current.plus({ months: 1 }).startOf('month');
+  }
+  
+  return periods;
 }
 
-export function getCacheFileName(startDate: Date, endDate: Date): string {
-  // Use month-based naming for cache files
-  return `events-${format(startDate, 'yyyy-MM')}.json`;
-}
-
-export function isDateInRange(date: Date, range: { start: Date; end: Date }): boolean {
-  return isWithinInterval(parseISO(date.toString()), {
-    start: range.start,
-    end: range.end
-  });
+/**
+ * Format date for PocketSmith API (YYYY-MM-DD)
+ * @param date DateTime object
+ * @returns Formatted date string
+ */
+export function formatDateForAPI(date: DateTime): string {
+  return date.toISODate() || '';
 }
