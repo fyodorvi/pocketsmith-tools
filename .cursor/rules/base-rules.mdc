@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+always use luxon for working with dates
+use tsx to run the app
+the app is about pocketsmith credit card repayment calculations
+the app is going to be used with command-line only
