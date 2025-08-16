@@ -78,4 +78,42 @@ export class PocketSmithClient {
     
     return this.fetchEvents(startDate, endDate);
   }
+
+  /**
+   * Update an event with new data
+   * @param eventId The event ID to update
+   * @param updateData Partial event data to update
+   * @returns Updated event
+   */
+  async updateEvent(eventId: string, updateData: Partial<PocketSmithEvent>): Promise<PocketSmithEvent> {
+    try {
+      const url = `/events/${eventId}`;
+      
+      console.log(`Updating event ${eventId}...`);
+      
+      const response = await this.client.put(url, updateData);
+      
+      if (response.status !== 200 && response.status !== 202) {
+        throw new Error(`API request failed with status ${response.status}: ${response.statusText}`);
+      }
+
+      const updatedEvent = response.data as PocketSmithEvent;
+      console.log(`✅ Successfully updated event ${eventId}`);
+      
+      return updatedEvent;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          console.error(`API Error ${error.response.status}:`, error.response.data);
+          throw new Error(`PocketSmith API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          console.error('No response received from API:', error.request);
+          throw new Error('No response received from PocketSmith API');
+        }
+      }
+      
+      console.error('Error updating event:', error);
+      throw error;
+    }
+  }
 }

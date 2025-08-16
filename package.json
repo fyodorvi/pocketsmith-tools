@@ -11,9 +11,11 @@
     "prebuild": "npm run clean"
   },
   "dependencies": {
+    "@types/inquirer": "^9.0.9",
     "@types/luxon": "^3.7.1",
     "axios": "^1.6.7",
     "dotenv": "^16.4.1",
+    "inquirer": "^12.9.2",
     "luxon": "^3.7.1"
   },
   "devDependencies": {

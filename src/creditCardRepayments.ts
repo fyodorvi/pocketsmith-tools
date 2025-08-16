@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { DailySpendingMap, getSpendingForDateRange } from './dailySpendingMap';
 import { PocketSmithEvent } from './types';
+import { PocketSmithClient } from './pocketsmith';
 
 export interface BillBreakdown {
   /** Individual bill event */
@@ -228,6 +229,183 @@ export function displayCreditCardRepayments(repayments: CreditCardBillingPeriod[
   console.log('');
   console.log(`📊 Summary: ${repayments.length} repayment periods, total: $${totalRepayments.toFixed(2)}`);
   console.log(`📈 Average monthly repayment: $${(totalRepayments / repayments.length).toFixed(2)}`);
+}
+
+/**
+ * Display a summary of monthly repayments only
+ * @param repayments Array of billing periods with repayment amounts
+ */
+export function displayRepaymentSummary(repayments: CreditCardBillingPeriod[]): void {
+  console.log('');
+  console.log('💳 Monthly Credit Card Repayment Summary');
+  console.log('=======================================');
+  
+  if (repayments.length === 0) {
+    console.log('❌ No repayment data available');
+    return;
+  }
+  
+  repayments.forEach((period) => {
+    // Format month as "2026 Jan" instead of "2026-01"
+    const [year, monthNum] = period.repaymentMonth.split('-');
+    const monthName = DateTime.fromObject({ month: parseInt(monthNum) }).toFormat('MMM');
+    const formattedMonth = `${year} ${monthName}`;
+    
+    console.log(`${formattedMonth}: $${period.totalSpending.toFixed(2)}`);
+  });
+}
+
+/**
+ * Apply headroom percentage to credit card repayments
+ * @param repayments Array of billing periods with repayment amounts
+ * @param headroomPercentage Percentage to add as headroom (e.g., 20 for 20%)
+ * @returns New array with headroom applied
+ */
+export function applyHeadroomToRepayments(
+  repayments: CreditCardBillingPeriod[],
+  headroomPercentage: number
+): CreditCardBillingPeriod[] {
+  const multiplier = 1 + (headroomPercentage / 100);
+  
+  return repayments.map(period => ({
+    ...period,
+    totalSpending: period.totalSpending * multiplier
+  }));
+}
+
+/**
+ * Display repayment summary with headroom comparison
+ * @param originalRepayments Original repayment amounts
+ * @param adjustedRepayments Repayments with headroom applied
+ * @param headroomPercentage The headroom percentage applied
+ */
+export function displayRepaymentSummaryWithHeadroom(
+  originalRepayments: CreditCardBillingPeriod[],
+  adjustedRepayments: CreditCardBillingPeriod[],
+  headroomPercentage: number
+): void {
+  console.log('');
+  console.log(`💳 Monthly Credit Card Repayment Summary (with ${headroomPercentage}% headroom)`);
+  console.log('================================================================');
+  
+  if (originalRepayments.length === 0) {
+    console.log('❌ No repayment data available');
+    return;
+  }
+  
+  let totalOriginal = 0;
+  let totalAdjusted = 0;
+  
+  adjustedRepayments.forEach((period, index) => {
+    // Format month as "2026 Jan" instead of "2026-01"
+    const [year, monthNum] = period.repaymentMonth.split('-');
+    const monthName = DateTime.fromObject({ month: parseInt(monthNum) }).toFormat('MMM');
+    const formattedMonth = `${year} ${monthName}`;
+    
+    const originalAmount = originalRepayments[index].totalSpending;
+    const adjustedAmount = period.totalSpending;
+    const difference = adjustedAmount - originalAmount;
+    
+    console.log(`${formattedMonth}: $${adjustedAmount.toFixed(2)} (was $${originalAmount.toFixed(2)}, +$${difference.toFixed(2)})`);
+    
+    totalOriginal += originalAmount;
+    totalAdjusted += adjustedAmount;
+  });
+  
+  const totalDifference = totalAdjusted - totalOriginal;
+  console.log('');
+  console.log(`📊 Total: $${totalAdjusted.toFixed(2)} (was $${totalOriginal.toFixed(2)}, +$${totalDifference.toFixed(2)})`);
+  console.log(`📈 Average monthly: $${(totalAdjusted / adjustedRepayments.length).toFixed(2)} (was $${(totalOriginal / originalRepayments.length).toFixed(2)})`);
+}
+
+/**
+ * Find credit card repayment events for specific months
+ * @param allEvents All PocketSmith events
+ * @param repaymentMonths Array of repayment months in format "YYYY-MM"
+ * @returns Map of repayment month to existing event (if found)
+ */
+export function findCreditCardRepaymentEvents(
+  allEvents: PocketSmithEvent[], 
+  repaymentMonths: string[]
+): Map<string, PocketSmithEvent> {
+  const repaymentEvents = new Map<string, PocketSmithEvent>();
+  
+  // Filter to credit card repayment events only
+  const creditCardEvents = allEvents.filter(event => 
+    event.category.title === "Credit Card Repayments 💳"
+  );
+  
+  for (const month of repaymentMonths) {
+    // Find event for this month
+    const event = creditCardEvents.find(event => {
+      const eventDate = DateTime.fromISO(event.date);
+      const eventMonth = `${eventDate.year}-${eventDate.month.toString().padStart(2, '0')}`;
+      return eventMonth === month;
+    });
+    
+    if (event) {
+      repaymentEvents.set(month, event);
+    }
+  }
+  
+  return repaymentEvents;
+}
+
+/**
+ * Update credit card repayment events with calculated amounts
+ * @param client PocketSmith API client
+ * @param repayments Array of calculated repayment periods
+ * @param existingEvents Map of existing repayment events
+ */
+export async function updateCreditCardRepaymentEvents(
+  client: PocketSmithClient,
+  repayments: CreditCardBillingPeriod[],
+  existingEvents: Map<string, PocketSmithEvent>
+): Promise<void> {
+  console.log('');
+  console.log('🔄 Updating credit card repayment events in PocketSmith...');
+  
+  let updatedCount = 0;
+  let skippedCount = 0;
+  
+  for (const repayment of repayments) {
+    const existingEvent = existingEvents.get(repayment.repaymentMonth);
+    
+    if (!existingEvent) {
+      console.log(`⚠️  No existing event found for ${repayment.repaymentMonth}, skipping...`);
+      skippedCount++;
+      continue;
+    }
+    
+    // Prepare update data
+    const updateData = {
+      behaviour: "one",
+      amount: repayment.totalSpending,
+      repeat_type: "once" as const
+    };
+    
+    try {
+      await client.updateEvent(existingEvent.id, updateData);
+      updatedCount++;
+      
+      // Format month for display
+      const [year, monthNum] = repayment.repaymentMonth.split('-');
+      const monthName = DateTime.fromObject({ month: parseInt(monthNum) }).toFormat('MMM');
+      const formattedMonth = `${year} ${monthName}`;
+      
+      console.log(`✅ Updated ${formattedMonth}: $${repayment.totalSpending.toFixed(2)}`);
+      
+      // Add a small delay between API calls
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+    } catch (error) {
+      console.error(`❌ Failed to update event for ${repayment.repaymentMonth}:`, error);
+      skippedCount++;
+    }
+  }
+  
+  console.log('');
+  console.log(`📊 Update Summary: ${updatedCount} events updated, ${skippedCount} skipped`);
 }
 
 /**
